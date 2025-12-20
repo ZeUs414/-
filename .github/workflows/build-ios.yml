@@ -18,7 +18,7 @@ jobs:
       - name: 🛠️ Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22 # تم اختيار أحدث إصدار مستقر ليتناسب مع React Native 0.81
+          node-version: 22 
 
       - name: 📦 Install dependencies
         run: |
@@ -38,15 +38,13 @@ jobs:
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
           
-          # 2. تعديل الـ Podfile برمجياً ليتوافق مع SDK 54
-          # سنقوم بحذف أي محاولة لفرض التوقيع ونعطل الـ Optimization للمكتبات الحديثة
+          # 2. تعديل الـ Podfile برمجياً ليتوافق مع SDK 54 وتعطيل التوقيع للمكتبات
           python3 -c "
           import os
           path = 'Podfile'
           with open(path, 'r') as f:
               content = f.read()
           
-          # إضافة كود الإصلاح في نهاية الـ post_install
           fix_code = '''
               installer.pods_project.targets.each do |target|
                 target.build_configurations.each do |config|
@@ -64,10 +62,10 @@ jobs:
                   f.write(new_content)
           "
 
-          # 3. تحديث الـ Pods مع الإعدادات الجديدة
+          # 3. تحديث الـ Pods
           pod install
 
-          # 4. بناء المشروع باستخدام Xcode 16 (المتوافق مع SDK 54)
+          # 4. بناء المشروع
           xcodebuild build \
             -workspace ZEUSBrowser.xcworkspace \
             -scheme ZEUSBrowser \
@@ -79,25 +77,30 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            SWIFT_COMPILATION_MODE=wholemodule
+            COMPILER_INDEX_STORE_ENABLE=NO
 
       - name: 📦 Create unsigned IPA
         run: |
           cd web/ios
-          APP_PATH=$(find build_output/Build/Products/Release-iphoneos -name \"*.app\" | head -n 1)
+          # البحث بعمق عن ملف .app في كل مجلد build_output
+          APP_PATH=$(find build_output -name "*.app" -type d | head -n 1)
 
-          if [ -z \"$APP_PATH\" ]; then
-            echo \"❌ App not found. List of files:\"
-            find build_output -name \"*.app\"
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ App not found anywhere in build_output. Checking full tree:"
+            find build_output
             exit 1
           fi
 
-          echo \"✅ Found app at: $APP_PATH\"
+          echo "✅ Found app at: $APP_PATH"
+          
+          # تجهيز مجلد الـ IPA
           mkdir -p Payload
-          cp -R \"$APP_PATH\" Payload/
+          cp -R "$APP_PATH" Payload/
+          
+          # ضغط الملف وتسميته
           zip -r ZEUSBrowser-unsigned.ipa Payload
-          rm -rf Payload
+          
+          echo "✅ IPA created successfully: $(pwd)/ZEUSBrowser-unsigned.ipa"
 
       - name: ⬆️ Upload IPA
         uses: actions/upload-artifact@v4
