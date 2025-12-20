@@ -1,40 +1,66 @@
-name: Build iOS IPA
+name: Build Unsigned iOS IPA (Expo)
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      APP_NAME: App
+
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🧰 Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      
-      - name: Install dependencies
+          node-version: 18
+
+      - name: 📦 Install dependencies
         run: |
           cd web
           npm install
-      
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
-      
-      - name: Login to Expo
-        run: eas login -u ${{ secrets.EXPO_USERNAME }} -p ${{ secrets.EXPO_PASSWORD }} --non-interactive
-      
-      - name: Build iOS IPA
+
+      - name: ⚙️ Expo prebuild (iOS)
         run: |
           cd web
-          eas build -p ios --profile production --non-interactive
-      
-      - name: Upload IPA
-        uses: actions/upload-artifact@v3
+          npx expo prebuild -p ios --non-interactive
+
+      - name: 🏗️ Build iOS app (NO SIGNING)
+        run: |
+          cd web/ios
+          xcodebuild build \
+            -workspace *.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build_output \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 📦 Create unsigned IPA
+        run: |
+          cd web/ios
+          APP_PATH="build_output/Build/Products/Release-iphoneos/App.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ App not found"
+            exit 1
+          fi
+
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r App-unsigned.ipa Payload
+          rm -rf Payload build_output
+
+      - name: ⬆️ Upload IPA
+        uses: actions/upload-artifact@v4
         with:
-          name: ios-ipa
-          path: web/build/ios/ipa
+          name: ios-unsigned-ipa
+          path: web/ios/*.ipa
