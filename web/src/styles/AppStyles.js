@@ -1,3 +1,4 @@
+
 import { StyleSheet, Dimensions } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -8,22 +9,35 @@ const { width, height } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000000', // لون الخلفية أسود دائماً
   },
   webViewContainer: {
     flex: 1,
+    backgroundColor: '#000000', // مهم جداً لمنع الوميض الأبيض
   },
   webView: {
     flex: 1,
+    backgroundColor: '#000000', // تعيين خلفية الويب فيو
+  },
+  // Loading Indicator Overlay
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
   },
   progressBar: {
-    height: 2,
-    backgroundColor: '#e0e0e0',
-    overflow: 'hidden',
+    height: 3,
+    backgroundColor: '#333',
+    width: '100%',
+    position: 'absolute',
+    top: 0,
+    zIndex: 10,
   },
   progressFill: {
     height: '100%',
-    width: '30%',
+    width: '40%', // شكل جمالي مبدئي
     backgroundColor: '#007AFF',
   },
   overlay: {
@@ -317,34 +331,46 @@ const styles = StyleSheet.create({
   historyDeleteIcon: {
     fontSize: 18,
   },
-  floatingToolbar: {
+  
+  // ===================================
+  // ✅ FIX: Floating Toolbar Centering
+  // ===================================
+  // الحاوية الخارجية المسؤولة عن التوسيط
+  floatingToolbarContainer: {
     position: 'absolute',
+    top: 0,
+    bottom: 0,
     right: 0,
-    top: '40%',
-    // 1. تغيير الخلفية إلى رمادي غامق جداً
+    justifyContent: 'center', // توسيط عمودي مثالي
+    alignItems: 'flex-end',   // محاذاة لليمين
+    zIndex: 4,
+    pointerEvents: 'box-none', // يسمح بالنقر في المساحات الفارغة
+  },
+  
+  floatingToolbar: {
+    // إزالة top و position لأن الحاوية ستتولى الأمر
     backgroundColor: 'rgba(30,30,30,0.95)',
     borderTopLeftRadius: 20,
     borderBottomLeftRadius: 20,
-    // 2. إضافة إطار أبيض شفاف لتمييز الشريط عن المواقع السوداء
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
-    borderRightWidth: 0, // إزالة الإطار من جهة الحافة
-    padding: 15,
+    borderRightWidth: 0,
+    padding: 12, // تقليل الهوامش قليلاً لتوفير المساحة
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5, // زيادة الظل قليلاً
+    shadowOpacity: 0.5,
     shadowRadius: 5,
     elevation: 5,
-    zIndex: 4,
+    direction: 'ltr',
   },
   toolbarButton: {
-    marginBottom: 20,
+    marginBottom: 18, // مسافة مناسبة بين الأزرار
     alignItems: 'center',
     position: 'relative',
   },
   toolbarIcon: {
     fontSize: 24,
-    color: '#fff', // 3. تحويل الأيقونات للون الأبيض
+    color: '#fff',
   },
   disabledIcon: {
     opacity: 0.3,
@@ -361,15 +387,17 @@ const styles = StyleSheet.create({
   toolbarDivider: {
     width: 30,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.2)', // 4. تحويل الخط الفاصل للون فاتح
-    marginBottom: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginBottom: 18,
   },
+  
+  // منطقة السحب (إن وجدت)
   toolbarShowArea: {
     position: 'absolute',
     right: 0,
-    top: '40%',
+    top: '30%',
+    bottom: '30%',
     width: 25,
-    height: 200,
     zIndex: 10,
   },
   topDragArea: {
@@ -598,7 +626,7 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 14,
     marginBottom: 8,
-    marginTop: 15
+    marginTop: 15,
   },
   hint: {
     color: '#666',

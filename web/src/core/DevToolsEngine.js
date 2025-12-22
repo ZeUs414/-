@@ -4,7 +4,7 @@
 // ===============================================
 
 const DevToolsEngine = {
-  // 1. اعتراض الكونسول (Console Interceptor) - جديد وإصلاح شامل
+  // 1. اعتراض الكونسول (Console Interceptor)
   getConsoleInterceptorScript: () => {
     return `
       (function() {
@@ -13,7 +13,6 @@ const DevToolsEngine = {
 
         function sendToApp(level, args) {
             try {
-                // تحويل كل المعاملات إلى نص مقروء
                 const message = args.map(arg => {
                     if (arg === null) return 'null';
                     if (arg === undefined) return 'undefined';
@@ -41,7 +40,6 @@ const DevToolsEngine = {
         console.warn = function(...args) { sendToApp('warn', args); originalWarn.apply(console, args); };
         console.info = function(...args) { sendToApp('info', args); originalInfo.apply(console, args); };
 
-        // التقاط الأخطاء غير المعالجة (Uncaught Exceptions)
         window.addEventListener('error', function(e) {
             sendToApp('error', ['[Uncaught Exception]', e.message, 'at', e.filename, ':', e.lineno]);
         });
@@ -50,42 +48,63 @@ const DevToolsEngine = {
     `;
   },
 
-  // 2. اعتراض طلبات الشبكة (Fetch & XHR)
+  // 2. اعتراض طلبات الشبكة (Fetch & XHR) - (FIXED)
   getNetworkInterceptorScript: () => {
     return `
       (function() {
         if (window.networkInterceptorInjected) return;
         window.networkInterceptorInjected = true;
-        window.__NETWORK_INSPECTOR_ENABLED__ = false;
+        // Default to true to ensure capture if enabled from UI immediately, 
+        // controlled by subsequent toggle commands.
+        window.__NETWORK_INSPECTOR_ENABLED__ = false; 
 
         function sendNetworkLog(type, method, url, status, data) {
            if (!window.__NETWORK_INSPECTOR_ENABLED__) return;
-           window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'NETWORK_LOG',
-              payload: {
-                 id: Math.random().toString(36).substr(2, 9),
-                 timestamp: new Date().toLocaleTimeString(),
-                 requestType: type,
-                 method: method,
-                 url: url,
-                 status: status,
-                 data: data
-              }
-           }));
+           try {
+               window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'NETWORK_LOG',
+                  payload: {
+                     id: Math.random().toString(36).substr(2, 9),
+                     timestamp: new Date().toLocaleTimeString(),
+                     requestType: type,
+                     method: method,
+                     url: url,
+                     status: status,
+                     data: data ? String(data).substring(0, 1000) : '' 
+                  }
+               }));
+           } catch(e) {}
         }
 
+        // --- Fetch Interceptor ---
         const originalFetch = window.fetch;
         window.fetch = async (...args) => {
-           const [resource, config] = args;
-           const method = (config && config.method) ? config.method : 'GET';
-           const url = resource instanceof Request ? resource.url : resource;
+           let [resource, config] = args;
+           let method = 'GET';
+           let url = '';
+
+           if (resource instanceof Request) {
+               method = resource.method;
+               url = resource.url;
+           } else {
+               url = resource;
+               if (config && config.method) method = config.method;
+           }
+
            try {
               const response = await originalFetch(...args);
+              
               if (window.__NETWORK_INSPECTOR_ENABLED__) {
-                  const clone = response.clone();
-                  clone.text().then(text => {
-                     sendNetworkLog('FETCH', method, url, response.status, text.substring(0, 2000));
-                  }).catch(() => {});
+                  try {
+                      const clone = response.clone();
+                      clone.text().then(text => {
+                         sendNetworkLog('FETCH', method, url, response.status, text);
+                      }).catch(err => {
+                         sendNetworkLog('FETCH', method, url, response.status, '[Binary or Opaque Data]');
+                      });
+                  } catch (e) {
+                      sendNetworkLog('FETCH', method, url, response.status, '[Response Read Error]');
+                  }
               }
               return response;
            } catch(err) {
@@ -94,19 +113,35 @@ const DevToolsEngine = {
            }
         };
 
+        // --- XHR Interceptor ---
         const originalOpen = XMLHttpRequest.prototype.open;
         const originalSend = XMLHttpRequest.prototype.send;
+        
         XMLHttpRequest.prototype.open = function(method, url) {
            this._method = method;
            this._url = url;
            return originalOpen.apply(this, arguments);
         };
+        
         XMLHttpRequest.prototype.send = function(body) {
            this.addEventListener('load', function() {
               if (window.__NETWORK_INSPECTOR_ENABLED__) {
-                  const responseData = this.responseText ? this.responseText.substring(0, 2000) : '[No Content]';
+                  let responseData = '[No Content]';
+                  try {
+                      if (this.responseType === '' || this.responseType === 'text') {
+                          responseData = this.responseText;
+                      } else if (this.responseType === 'json') {
+                          responseData = JSON.stringify(this.response);
+                      } else {
+                          responseData = '[' + this.responseType + ' data]';
+                      }
+                  } catch (e) { responseData = '[Read Error]'; }
+                  
                   sendNetworkLog('XHR', this._method, this._url, this.status, responseData);
               }
+           });
+           this.addEventListener('error', function() {
+               if (window.__NETWORK_INSPECTOR_ENABLED__) sendNetworkLog('XHR', this._method, this._url, 'ERR', 'Network Error');
            });
            return originalSend.apply(this, arguments);
         };
