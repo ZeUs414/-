@@ -33,6 +33,16 @@ const AdBlockManager = {
 
     return `
       (function() {
+        
+        // --- 0. POPUP KILLER (Aggressive) ---
+        // ✅ FIX #6: Override window.open to stop popups completely
+        try {
+            window.open = function() { 
+                console.log('⛔️ Popup Blocked by ZEUS Browser'); 
+                return null; 
+            };
+        } catch(e) {}
+
         // --- 1. CSS Injection (Fast & Passive) ---
         const style = document.createElement('style');
         style.id = 'titanium-style-blocker';
@@ -47,20 +57,27 @@ const AdBlockManager = {
         };
 
         // --- 2. The "Aggressive" Hunter (Active JS - Optimized) ---
-        // OPTIMIZATION: تم استبدال setInterval بـ MutationObserver
-        // هذا يجعل الكود يعمل فقط عند تغيير الصفحة، مما يوفر البطارية ويحسن الأداء بشكل هائل
         
         const badWords = ${textFilters};
         let cleanupTimeout = null;
         
         function aggressiveClean() {
             try {
-                // 1. تنظيف الروابط السيئة
+                // 1. تنظيف الروابط السيئة ومنع الفتح في تبويب جديد
+                // ✅ Enhanced: Remove target="_blank" from ALL links to prevent popups
                 const links = document.querySelectorAll('a');
                 for (let i = 0; i < links.length; i++) {
-                    const href = links[i].href.toLowerCase();
+                    const el = links[i];
+                    
+                    // منع فتح نوافذ جديدة
+                    if (el.target === '_blank') {
+                        el.removeAttribute('target');
+                    }
+
+                    const href = el.href.toLowerCase();
                     if (href.includes('bc.game') || href.includes('bet') || href.includes('pop')) {
-                        links[i].remove();
+                        el.href = 'javascript:void(0)';
+                        el.onclick = function(e) { e.preventDefault(); e.stopPropagation(); };
                     }
                 }
 
@@ -93,17 +110,25 @@ const AdBlockManager = {
             } catch(e) {}
         }
 
-        // استخدام المراقب (Observer) بدلاً من المؤقت الدائم
+        // Global Click Interceptor to stop popups
+        window.addEventListener('click', function(e) {
+            let target = e.target;
+            while(target && target.tagName !== 'A') {
+                target = target.parentNode;
+            }
+            if (target && target.target === '_blank') {
+                target.removeAttribute('target');
+            }
+        }, true);
+
         const observer = new MutationObserver((mutations) => {
-            // Debounce: انتظر توقف التعديلات لمدة 500ms قبل التنظيف لتجنب الضغط على المعالج
             if (cleanupTimeout) clearTimeout(cleanupTimeout);
             cleanupTimeout = setTimeout(aggressiveClean, 500);
         });
 
-        // بدء المراقبة عند تحميل الصفحة
         if (document.body) {
             observer.observe(document.body, { childList: true, subtree: true });
-            aggressiveClean(); // تنظيف أولي
+            aggressiveClean(); 
         } else {
             window.addEventListener('DOMContentLoaded', () => {
                  observer.observe(document.body, { childList: true, subtree: true });
@@ -126,13 +151,28 @@ const AdBlockManager = {
     `;
   },
 
-  shouldBlockRequest: (url, currentUrl) => {
+  shouldBlockRequest: (url, currentUrl, userBlockedDomains = []) => {
     const lowerUrl = url.toLowerCase();
+    
+    // 1. Check User Blocked Domains (Strict Blocking)
+    if (userBlockedDomains && userBlockedDomains.length > 0) {
+        // Strip http/www for loose matching
+        const cleanUrl = lowerUrl.replace(/^https?:\/\/(www\.)?/, '');
+        const isUserBlocked = userBlockedDomains.some(domain => {
+            const cleanDomain = domain.toLowerCase().replace(/^https?:\/\/(www\.)?/, '');
+            return cleanUrl.includes(cleanDomain);
+        });
+        if (isUserBlocked) return true;
+    }
+
+    // 2. Whitelist check
     if (lowerUrl.includes('cloudflare') || lowerUrl.includes('challenge')) return false;
     
+    // 3. Built-in Blacklist
     const blacklist = [
         'doubleclick.net', 'googlesyndication', 'facebook.com/tr', 'google-analytics', 
-        'adnxs', 'popcash', 'popads', 'mc.yandex.ru', 'gemini', 'exoclick', 'propellerads'
+        'adnxs', 'popcash', 'popads', 'mc.yandex.ru', 'gemini', 'exoclick', 'propellerads',
+        'juicyads', 'adsterra', 'trafficjunky'
     ];
     
     if (blacklist.some(w => lowerUrl.includes(w))) return true;

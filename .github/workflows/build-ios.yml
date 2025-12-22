@@ -1,40 +1,109 @@
-name: Build iOS IPA
+name: Build Unsigned iOS IPA (Expo SDK 54)
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      APP_NAME: ZEUSBrowser
+
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      
-      - name: Install dependencies
+          node-version: 22 
+
+      - name: 📦 Install dependencies
         run: |
           cd web
           npm install
-      
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
-      
-      - name: Login to Expo
-        run: eas login -u ${{ secrets.EXPO_USERNAME }} -p ${{ secrets.EXPO_PASSWORD }} --non-interactive
-      
-      - name: Build iOS IPA
+
+      - name: ⚙️ Expo prebuild (iOS)
         run: |
           cd web
-          eas build -p ios --profile production --non-interactive
-      
-      - name: Upload IPA
-        uses: actions/upload-artifact@v3
+          npx expo prebuild -p ios --non-interactive
+
+      - name: 🏗️ Build iOS app (NO SIGNING)
+        run: |
+          cd web/ios
+          
+          # 1. تعطيل التوقيع في ملف المشروع الرئيسي لـ Xcode
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ZEUSBrowser.xcodeproj/project.pbxproj
+          
+          # 2. تعديل الـ Podfile برمجياً ليتوافق مع SDK 54 وتعطيل التوقيع للمكتبات
+          python3 -c "
+          import os
+          path = 'Podfile'
+          with open(path, 'r') as f:
+              content = f.read()
+          
+          fix_code = '''
+              installer.pods_project.targets.each do |target|
+                target.build_configurations.each do |config|
+                  config.build_settings['GCC_OPTIMIZATION_LEVEL'] = '0'
+                  config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+                  config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+                  config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+                  config.build_settings['ENABLE_BITCODE'] = 'NO'
+                end
+              end
+          '''
+          if 'post_install do |installer|' in content:
+              new_content = content.replace('post_install do |installer|', 'post_install do |installer|' + fix_code)
+              with open(path, 'w') as f:
+                  f.write(new_content)
+          "
+
+          # 3. تحديث الـ Pods
+          pod install
+
+          # 4. بناء المشروع
+          xcodebuild build \
+            -workspace ZEUSBrowser.xcworkspace \
+            -scheme ZEUSBrowser \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build_output \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO
+
+      - name: 📦 Create unsigned IPA
+        run: |
+          cd web/ios
+          # البحث بعمق عن ملف .app في كل مجلد build_output
+          APP_PATH=$(find build_output -name "*.app" -type d | head -n 1)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ App not found anywhere in build_output. Checking full tree:"
+            find build_output
+            exit 1
+          fi
+
+          echo "✅ Found app at: $APP_PATH"
+          
+          # تجهيز مجلد الـ IPA
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          
+          # ضغط الملف وتسميته
+          zip -r ZEUSBrowser-unsigned.ipa Payload
+          
+          echo "✅ IPA created successfully: $(pwd)/ZEUSBrowser-unsigned.ipa"
+
+      - name: ⬆️ Upload IPA
+        uses: actions/upload-artifact@v4
         with:
-          name: ios-ipa
-          path: web/build/ios/ipa
+          name: ios-unsigned-ipa
+          path: web/ios/*.ipa
